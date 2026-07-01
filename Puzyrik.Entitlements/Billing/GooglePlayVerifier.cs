@@ -14,23 +14,47 @@ namespace Puzyrik.Entitlements.Billing;
 public sealed class GooglePlayVerifier : IGooglePlayVerifier
 {
     private readonly GooglePlayOptions _options;
-    private readonly AndroidPublisherService _service;
     private readonly ILogger<GooglePlayVerifier> _logger;
+
+    // The Google client is built lazily on first use: credential loading is async now, which
+    // can't happen in a constructor. SemaphoreSlim guards against two concurrent first-calls
+    // both trying to build it.
+    private readonly SemaphoreSlim _initLock = new(1, 1);
+    private AndroidPublisherService? _service;
 
     public GooglePlayVerifier(IOptions<GooglePlayOptions> options, ILogger<GooglePlayVerifier> logger)
     {
         _options = options.Value;
         _logger = logger;
+    }
 
-        var credential = GoogleCredential
-            .FromFile(_options.ServiceAccountJsonPath)
-            .CreateScoped(AndroidPublisherService.Scope.Androidpublisher);
+    private async Task<AndroidPublisherService> GetServiceAsync(CancellationToken cancellationToken)
+    {
+        if (_service is not null)
+            return _service;
 
-        _service = new AndroidPublisherService(new BaseClientService.Initializer
+        await _initLock.WaitAsync(cancellationToken);
+        try
         {
-            HttpClientInitializer = credential,
-            ApplicationName = "Puzyrik.Entitlements"
-        });
+            if (_service is not null)
+                return _service;
+
+var credential = (await CredentialFactory
+                    .FromFileAsync(_options.ServiceAccountJsonPath, "service_account", cancellationToken))
+                .CreateScoped(AndroidPublisherService.Scope.Androidpublisher);
+
+            _service = new AndroidPublisherService(new BaseClientService.Initializer
+            {
+                HttpClientInitializer = credential,
+                ApplicationName = "Puzyrik.Entitlements"
+            });
+
+            return _service;
+        }
+        finally
+        {
+            _initLock.Release();
+        }
     }
 
     public async Task<PurchaseVerification> VerifyAndAcknowledgeAsync(
@@ -38,11 +62,13 @@ public sealed class GooglePlayVerifier : IGooglePlayVerifier
         string purchaseToken,
         CancellationToken cancellationToken)
     {
+        var service = await GetServiceAsync(cancellationToken);
+
         ProductPurchase purchase;
         try
         {
             // GET .../purchases/products/{productId}/tokens/{token}
-            purchase = await _service.Purchases.Products
+            purchase = await service.Purchases.Products
                 .Get(_options.PackageName, productId, purchaseToken)
                 .ExecuteAsync(cancellationToken);
         }
@@ -68,7 +94,7 @@ public sealed class GooglePlayVerifier : IGooglePlayVerifier
         // Acknowledge a genuine purchase server-side, or Google auto-refunds after ~3 days.
         if (status == PurchaseStatus.Purchased && !alreadyAcknowledged)
         {
-            await _service.Purchases.Products
+            await service.Purchases.Products
                 .Acknowledge(new ProductPurchasesAcknowledgeRequest(), _options.PackageName, productId, purchaseToken)
                 .ExecuteAsync(cancellationToken);
         }
