@@ -3,9 +3,9 @@ steps:
     args:
       - 'build'
       - '-t'
-      - 'asia-east1-docker.pkg.dev/tap-tap-bubblik-backend-4821/puzyrik/rewards-api:v1'
+      - 'asia-east1-docker.pkg.dev/tap-tap-bubblik-backend-4821/puzyrik/rewards-api:v2'
       - '-f'
       - 'Puzyrik.ApiService/Dockerfile'
       - '.'
 images:
-  - 'asia-east1-docker.pkg.dev/tap-tap-bubblik-backend-4821/puzyrik/rewards-api:v1'
+  - 'asia-east1-docker.pkg.dev/tap-tap-bubblik-backend-4821/puzyrik/rewards-api:v2'
