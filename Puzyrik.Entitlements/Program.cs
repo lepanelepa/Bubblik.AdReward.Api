@@ -9,7 +9,23 @@ using Puzyrik.Entitlements.Options;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
-builder.AddNpgsqlDataSource(connectionName: "entitlementsdb");
+
+// Cloud Run: DB_PASSWORD is injected from Secret Manager, and Postgres is reached over the
+// Cloud SQL unix socket (/cloudsql/<connectionName>). Locally there's no DB_PASSWORD, so we
+// fall back to the Aspire-injected connection string.
+var dbPassword = builder.Configuration["DB_PASSWORD"];
+if (!string.IsNullOrEmpty(dbPassword))
+{
+    var instanceConnectionName = builder.Configuration["CLOUD_SQL_CONNECTION_NAME"];
+    var connectionString =
+        $"Host=/cloudsql/{instanceConnectionName};Database=addb;Username=postgres;Password={dbPassword}";
+    builder.AddNpgsqlDataSource(connectionName: "entitlementsdb",
+        configureSettings: settings => settings.ConnectionString = connectionString);
+}
+else
+{
+   builder.AddNpgsqlDataSource(connectionName: "entitlementsdb");
+}
 
 builder.Services.Configure<GooglePlayOptions>(
     builder.Configuration.GetSection(GooglePlayOptions.SectionName));

@@ -13,10 +13,27 @@ var builder = WebApplication.CreateBuilder(args);
 // This single call is most of "modern .NET hosting" you missed in Unity.
 builder.AddServiceDefaults();
 
+
+// Cloud Run: DB_PASSWORD is injected from Secret Manager, and Postgres is reached over the
+// Cloud SQL unix socket (/cloudsql/<connectionName>). Locally there's no DB_PASSWORD, so we
+// fall back to the Aspire-injected connection string.
+var dbPassword = builder.Configuration["DB_PASSWORD"];
+if (!string.IsNullOrEmpty(dbPassword))
+{
+    var instanceConnectionName = builder.Configuration["CLOUD_SQL_CONNECTION_NAME"];
+    var connectionString =
+        $"Host=/cloudsql/{instanceConnectionName};Database=addb;Username=postgres;Password={dbPassword}";
+    builder.AddNpgsqlDataSource(connectionName: "addb",
+        configureSettings: settings => settings.ConnectionString = connectionString);
+}
+else
+{
 // PostgreSQL client integration (Aspire.Npgsql). Registers an NpgsqlDataSource in DI and
 // ALSO adds its own connection health check + telemetry automatically. "addb" must match
 // the database resource name declared in the AppHost.
-builder.AddNpgsqlDataSource(connectionName: "addb");
+    builder.AddNpgsqlDataSource(connectionName: "addb");
+}
+
 
 // Our data layer. RewardRepository is the idempotent reward-granting repo (Dapper, not EF) —
 // the foundation for Phase 2's SSV reward grants.
